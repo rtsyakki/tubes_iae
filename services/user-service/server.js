@@ -5,7 +5,6 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const userRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
-const authRoutes = require('./routes/auth');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -62,9 +61,6 @@ app.get('/api/public-key', (req, res) => {
   res.json({ publicKey });
 });
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
