@@ -109,21 +109,38 @@ const calculatePrice = (serviceType, weight) => {
 // GraphQL resolvers
 const resolvers = {
   Query: {
-    orders: (_, { customerId, status }) => {
+    orders: (_, { customerId, status }, { req }) => {
+      console.log('📋 Query: orders called');
+      console.log('   User:', req?.user?.email, 'Role:', req?.user?.role);
+      console.log('   Total orders in memory:', orders.length);
+      console.log('   Filter params - customerId:', customerId, 'status:', status);
+
       let filtered = orders;
       if (customerId) filtered = filtered.filter(o => o.customerId === customerId);
       if (status) filtered = filtered.filter(o => o.status === status);
+
+      console.log('   Returning', filtered.length, 'orders');
       return filtered;
     },
     order: (_, { id }) => orders.find(o => o.id === id),
     myOrders: (_, __, { req }) => {
+      console.log('📋 Query: myOrders called');
+      console.log('   User:', req?.user?.email, 'ID:', req?.user?.id);
+      console.log('   Total orders in memory:', orders.length);
+
       if (!req.user) throw new Error('Not authenticated');
-      return orders.filter(o => o.customerId === req.user.id);
+      const userOrders = orders.filter(o => o.customerId === req.user.id);
+
+      console.log('   Returning', userOrders.length, 'orders for user');
+      return userOrders;
     }
   },
 
   Mutation: {
     createOrder: (_, { input }, { req }) => {
+      console.log('📝 Mutation: createOrder called');
+      console.log('   User:', req?.user?.email, 'ID:', req?.user?.id);
+
       if (!req.user) throw new Error('Authentication required');
 
       const price = calculatePrice(input.serviceType, input.weight);
@@ -140,6 +157,9 @@ const resolvers = {
       };
 
       orders.push(newOrder);
+
+      console.log('   ✅ Order created:', newOrder.id);
+      console.log('   Total orders now:', orders.length);
 
       // Notify admins (generic subscription) or specific listeners
       pubsub.publish('ORDER_CREATED', { orderCreated: newOrder });
