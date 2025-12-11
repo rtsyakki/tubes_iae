@@ -148,7 +148,7 @@ function LoginForm({ onLogin }: { onLogin: (user: any, token: string) => void })
   );
 }
 
-function CustomerDashboard({ user }: { user: any }) {
+function CustomerDashboard({ user, onAuthError }: { user: any; onAuthError: () => void }) {
   const { data, loading, error, refetch } = useQuery(GET_MY_ORDERS);
   const [createOrder] = useMutation(CREATE_ORDER);
 
@@ -157,6 +157,21 @@ function CustomerDashboard({ user }: { user: any }) {
 
   const [newOrder, setNewOrder] = useState({ serviceType: 'WASH', weight: 1, notes: '' });
   const [showModal, setShowModal] = useState(false);
+
+  // Check for authentication errors and auto-logout
+  useEffect(() => {
+    if (error) {
+      const errorMessage = error.message.toLowerCase();
+      if (errorMessage.includes('401') ||
+        errorMessage.includes('not authenticated') ||
+        errorMessage.includes('invalid') ||
+        errorMessage.includes('expired') ||
+        errorMessage.includes('status code 500')) {
+        // Token is invalid or expired, trigger logout
+        onAuthError();
+      }
+    }
+  }, [error, onAuthError]);
 
   const handleCreateOrder = async () => {
     try {
@@ -172,13 +187,18 @@ function CustomerDashboard({ user }: { user: any }) {
       setShowModal(false);
       refetch();
       alert('Order placed successfully!');
-    } catch (err) {
-      alert('Failed to place order');
+    } catch (err: any) {
+      const errorMessage = err?.message?.toLowerCase() || '';
+      if (errorMessage.includes('401') || errorMessage.includes('not authenticated')) {
+        onAuthError();
+      } else {
+        alert('Failed to place order');
+      }
     }
   };
 
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error.message}</div>;
+  if (loading) return <div className="flex items-center justify-center min-h-[200px]"><div className="text-gray-500">Loading...</div></div>;
+  if (error) return <div className="flex items-center justify-center min-h-[200px]"><div className="text-red-500">Error loading orders. Please try logging in again.</div></div>;
 
   return (
     <div className="p-6">
@@ -259,9 +279,23 @@ function CustomerDashboard({ user }: { user: any }) {
   );
 }
 
-function AdminDashboard({ user }: { user: any }) {
+function AdminDashboard({ user, onAuthError }: { user: any; onAuthError: () => void }) {
   const { data, loading, error, refetch } = useQuery(GET_ALL_ORDERS);
   const [updateStatus] = useMutation(UPDATE_ORDER_STATUS);
+
+  // Check for authentication errors and auto-logout
+  useEffect(() => {
+    if (error) {
+      const errorMessage = error.message.toLowerCase();
+      if (errorMessage.includes('401') ||
+        errorMessage.includes('not authenticated') ||
+        errorMessage.includes('invalid') ||
+        errorMessage.includes('expired') ||
+        errorMessage.includes('status code 500')) {
+        onAuthError();
+      }
+    }
+  }, [error, onAuthError]);
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     try {
@@ -269,13 +303,18 @@ function AdminDashboard({ user }: { user: any }) {
         variables: { id, status: newStatus }
       });
       refetch();
-    } catch (err) {
-      alert('Failed to update status');
+    } catch (err: any) {
+      const errorMessage = err?.message?.toLowerCase() || '';
+      if (errorMessage.includes('401') || errorMessage.includes('not authenticated')) {
+        onAuthError();
+      } else {
+        alert('Failed to update status');
+      }
     }
   };
 
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error.message}</div>;
+  if (loading) return <div className="flex items-center justify-center min-h-[200px]"><div className="text-gray-500">Loading...</div></div>;
+  if (error) return <div className="flex items-center justify-center min-h-[200px]"><div className="text-red-500">Error loading orders. Please try logging in again.</div></div>;
 
   return (
     <div className="p-6">
@@ -376,7 +415,7 @@ function AppContent() {
       </nav>
 
       <main className="mx-auto max-w-7xl">
-        {user.role === 'admin' ? <AdminDashboard user={user} /> : <CustomerDashboard user={user} />}
+        {user.role === 'admin' ? <AdminDashboard user={user} onAuthError={handleLogout} /> : <CustomerDashboard user={user} onAuthError={handleLogout} />}
       </main>
     </div>
   );

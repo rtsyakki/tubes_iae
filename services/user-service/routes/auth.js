@@ -9,11 +9,6 @@ const {
   findUserById,
   addUser,
 } = require('../data/usersStore');
-const {
-  findUserByEmail,
-  findUserById,
-  addUser,
-} = require('../data/usersStore');
 
 /**
  * POST /api/auth/register
