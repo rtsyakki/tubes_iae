@@ -1,16 +1,7 @@
 const express = require('express');
-const { v4: uuidv4 } = require('uuid');
-const bcrypt = require('bcryptjs');
+const { Op } = require('sequelize');
 const { validateUser, validateUserUpdate } = require('../middleware/validation');
-const {
-  getUsers,
-  findUserById,
-  findUserByEmail,
-  addUser,
-  updateUser,
-  removeUser,
-} = require('../data/usersStore');
-
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -18,157 +9,194 @@ const sanitizeUser = (user) => {
   if (!user) {
     return null;
   }
-  const { password, ...rest } = user;
-  return rest;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    phone: user.phone,
+    address: user.address,
+    createdAt: user.created_at,
+    updatedAt: user.updated_at
+  };
 };
 
 // GET /api/users - Get all users
-router.get('/', (req, res) => {
-  const { page, limit, role, search } = req.query;
+router.get('/', async (req, res) => {
+  try {
+    const { page, limit, role, search } = req.query;
 
-  let filteredUsers = [...getUsers()];
+    let whereClause = {};
 
-  // Filter by role
-  if (role) {
-    filteredUsers = filteredUsers.filter(user => user.role === role);
-  }
+    // Filter by role
+    if (role) {
+      whereClause.role = role;
+    }
 
-  // Search by name or email
-  if (search) {
-    filteredUsers = filteredUsers.filter(user =>
-      user.name.toLowerCase().includes(search.toLowerCase()) ||
-      user.email.toLowerCase().includes(search.toLowerCase())
-    );
-  }
+    // Search by name or email
+    if (search) {
+      whereClause[Op.or] = [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } }
+      ];
+    }
 
-  // If pagination params provided, return paginated response
-  if (page && limit) {
-    const startIndex = (page - 1) * limit;
-    const endIndex = page * limit;
-    const paginatedUsers = filteredUsers.slice(startIndex, endIndex);
+    // If pagination params provided, return paginated response
+    if (page && limit) {
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+      const { count, rows } = await User.findAndCountAll({
+        where: whereClause,
+        limit: parseInt(limit),
+        offset: offset,
+        order: [['created_at', 'DESC']]
+      });
 
-    return res.json({
-      users: paginatedUsers.map(sanitizeUser),
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(filteredUsers.length / limit),
-        totalUsers: filteredUsers.length,
-        hasNext: endIndex < filteredUsers.length,
-        hasPrev: startIndex > 0
-      }
+      return res.json({
+        users: rows.map(sanitizeUser),
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(count / parseInt(limit)),
+          totalUsers: count,
+          hasNext: offset + rows.length < count,
+          hasPrev: offset > 0
+        }
+      });
+    }
+
+    // Otherwise return all users
+    const users = await User.findAll({
+      where: whereClause,
+      order: [['created_at', 'DESC']]
     });
-  }
 
-  // Otherwise return all users as simple array
-  res.json(filteredUsers.map(sanitizeUser));
+    res.json(users.map(sanitizeUser));
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
 });
 
 // GET /api/users/:id - Get user by ID
-router.get('/:id', (req, res) => {
-  const user = findUserById(req.params.id);
+router.get('/:id', async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
 
-  if (!user) {
-    return res.status(404).json({
-      error: 'User not found',
-      message: `User with ID ${req.params.id} does not exist`
-    });
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: `User with ID ${req.params.id} does not exist`
+      });
+    }
+
+    res.json(sanitizeUser(user));
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Failed to fetch user' });
   }
-
-  res.json(sanitizeUser(user));
 });
 
 // POST /api/users - Create new user
 router.post('/', validateUser, async (req, res) => {
-  const { name, email, age, role = 'user' } = req.body;
+  try {
+    const { name, email, role = 'CUSTOMER', phone, address } = req.body;
 
-  // Check if email already exists
-  const existingUser = findUserByEmail(email);
-  if (existingUser) {
-    return res.status(409).json({
-      error: 'Email already exists',
-      message: 'A user with this email already exists'
+    // Check if email already exists
+    const existingUser = await User.findByEmail(email);
+    if (existingUser) {
+      return res.status(409).json({
+        error: 'Email already exists',
+        message: 'A user with this email already exists'
+      });
+    }
+
+    const password = req.body.password || 'password123';
+
+    const newUser = await User.create({
+      name,
+      email,
+      password,
+      role,
+      phone,
+      address
     });
+
+    res.status(201).json({
+      message: 'User created successfully',
+      user: sanitizeUser(newUser)
+    });
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Failed to create user' });
   }
-
-  const rawPassword = req.body.password || 'password123';
-  const password = await bcrypt.hash(rawPassword, 10);
-
-  const newUser = {
-    id: uuidv4(),
-    name,
-    email,
-    age,
-    role,
-    password,
-  };
-
-  addUser(newUser);
-
-  const savedUser = findUserById(newUser.id);
-
-  res.status(201).json({
-    message: 'User created successfully',
-    user: sanitizeUser(savedUser)
-  });
 });
 
 // PUT /api/users/:id - Update user
-router.put('/:id', validateUserUpdate, (req, res) => {
-  const { name, email, age, role } = req.body;
+router.put('/:id', validateUserUpdate, async (req, res) => {
+  try {
+    const { name, email, role, phone, address } = req.body;
 
-  const user = findUserById(req.params.id);
+    const user = await User.findByPk(req.params.id);
 
-  if (!user) {
-    return res.status(404).json({
-      error: 'User not found',
-      message: `User with ID ${req.params.id} does not exist`
-    });
-  }
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: `User with ID ${req.params.id} does not exist`
+      });
+    }
 
-  // Check if email already exists (excluding current user)
-  if (email) {
-    const existingUser = findUserByEmail(email);
-    if (existingUser) {
-      if (existingUser.id !== req.params.id) {
+    // Check if email already exists (excluding current user)
+    if (email && email !== user.email) {
+      const existingUser = await User.findByEmail(email);
+      if (existingUser) {
         return res.status(409).json({
           error: 'Email already exists',
           message: 'A user with this email already exists'
         });
       }
     }
+
+    // Update fields
+    if (name !== undefined) user.name = name;
+    if (email !== undefined) user.email = email;
+    if (role !== undefined) user.role = role;
+    if (phone !== undefined) user.phone = phone;
+    if (address !== undefined) user.address = address;
+
+    await user.save();
+
+    res.json({
+      message: 'User updated successfully',
+      user: sanitizeUser(user)
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ error: 'Failed to update user' });
   }
-
-  const updates = {};
-  if (name !== undefined) updates.name = name;
-  if (email !== undefined) updates.email = email;
-  if (age !== undefined) updates.age = age;
-  if (role !== undefined) updates.role = role;
-
-  const updatedUser = updateUser(req.params.id, updates);
-
-  res.json({
-    message: 'User updated successfully',
-    user: sanitizeUser(updatedUser)
-  });
 });
 
 // DELETE /api/users/:id - Delete user
-router.delete('/:id', (req, res) => {
-  const user = findUserById(req.params.id);
+router.delete('/:id', async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
 
-  if (!user) {
-    return res.status(404).json({
-      error: 'User not found',
-      message: `User with ID ${req.params.id} does not exist`
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: `User with ID ${req.params.id} does not exist`
+      });
+    }
+
+    const deletedUser = sanitizeUser(user);
+    await user.destroy();
+
+    res.json({
+      message: 'User deleted successfully',
+      user: deletedUser
     });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
   }
-
-  const deletedUser = removeUser(user.id);
-
-  res.json({
-    message: 'User deleted successfully',
-    user: sanitizeUser(deletedUser)
-  });
 });
 
 module.exports = router;

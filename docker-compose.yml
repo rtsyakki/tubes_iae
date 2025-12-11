@@ -1,7 +1,48 @@
 version: '3.8'
 
 services:
-  # User Service (REST API)
+  # PostgreSQL Database for User Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=laundry_user
+      - POSTGRES_PASSWORD=laundry_pass
+      - POSTGRES_DB=laundry_users
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - laundry-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U laundry_user -d laundry_users"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Database for Laundry Service
+  mongodb:
+    image: mongo:6
+    platform: linux/amd64
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=laundry_admin
+      - MONGO_INITDB_ROOT_PASSWORD=laundry_secret
+      - MONGO_INITDB_DATABASE=laundry_orders
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - laundry-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # User Service (REST API with PostgreSQL)
   user-service:
     build: ./services/user-service
     container_name: user-service
@@ -10,12 +51,16 @@ services:
     environment:
       - PORT=3001
       - NODE_ENV=development
+      - DATABASE_URL=postgresql://laundry_user:laundry_pass@postgres:5432/laundry_users
     volumes:
       - ./keys:/app/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - laundry-network
 
-  # Laundry Service (GraphQL API)
+  # Laundry Service (GraphQL API with MongoDB)
   laundry-service:
     build: ./services/laundry-service
     container_name: laundry-service
@@ -24,6 +69,10 @@ services:
     environment:
       - PORT=4000
       - NODE_ENV=development
+      - MONGODB_URI=mongodb://laundry_admin:laundry_secret@mongodb:27017/laundry_orders?authSource=admin
+    depends_on:
+      mongodb:
+        condition: service_healthy
     networks:
       - laundry-network
 
@@ -58,6 +107,10 @@ services:
       - api-gateway
     networks:
       - laundry-network
+
+volumes:
+  postgres_data:
+  mongodb_data:
 
 networks:
   laundry-network:

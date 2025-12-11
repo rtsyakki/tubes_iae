@@ -1,14 +1,8 @@
 const express = require('express');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const router = express.Router();
-const {
-  findUserByEmail,
-  findUserById,
-  addUser,
-} = require('../data/usersStore');
+const User = require('../models/User');
 
 /**
  * POST /api/auth/register
@@ -26,38 +20,39 @@ router.post('/register', async (req, res, next) => {
     }
 
     // Check if user already exists
-    const existingUser = findUserByEmail(email);
+    const existingUser = await User.findByEmail(email);
     if (existingUser) {
       return res.status(409).json({
         error: 'User with this email already exists'
       });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create new user
-    const newUser = {
-      id: uuidv4(),
+    // Create new user (password will be hashed by the model hook)
+    const newUser = await User.create({
       email,
-      password: hashedPassword,
+      password,
       name,
       role: role || 'CUSTOMER',
       address: address || '',
-      phone: phone || '',
-      createdAt: new Date().toISOString()
-    };
-
-    addUser(newUser);
-    const savedUser = findUserById(newUser.id);
+      phone: phone || ''
+    });
 
     // Return user without password
-    const { password: _, ...userWithoutPassword } = savedUser;
+    const userResponse = {
+      id: newUser.id,
+      email: newUser.email,
+      name: newUser.name,
+      role: newUser.role,
+      phone: newUser.phone,
+      createdAt: newUser.created_at
+    };
+
     res.status(201).json({
       message: 'User registered successfully',
-      user: userWithoutPassword
+      user: userResponse
     });
   } catch (error) {
+    console.error('Registration error:', error);
     next(error);
   }
 });
@@ -78,7 +73,7 @@ router.post('/login', async (req, res, next) => {
     }
 
     // Find user
-    const user = findUserByEmail(email);
+    const user = await User.findByEmail(email);
     if (!user) {
       return res.status(401).json({
         error: 'Invalid email or password'
@@ -86,7 +81,7 @@ router.post('/login', async (req, res, next) => {
     }
 
     // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password);
+    const isValidPassword = await user.validatePassword(password);
     if (!isValidPassword) {
       return res.status(401).json({
         error: 'Invalid email or password'
@@ -128,13 +123,21 @@ router.post('/login', async (req, res, next) => {
     );
 
     // Return token and user info
-    const { password: _, ...userWithoutPassword } = user;
+    const userResponse = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      phone: user.phone
+    };
+
     res.json({
       message: 'Login successful',
       token,
-      user: userWithoutPassword
+      user: userResponse
     });
   } catch (error) {
+    console.error('Login error:', error);
     next(error);
   }
 });
@@ -143,7 +146,7 @@ router.post('/login', async (req, res, next) => {
  * GET /api/auth/me
  * Get current user info from token
  */
-router.get('/me', (req, res) => {
+router.get('/me', async (req, res) => {
   // This will be populated by API Gateway after JWT verification
   const userInfo = req.headers.user ? JSON.parse(req.headers.user) : null;
 
@@ -151,13 +154,22 @@ router.get('/me', (req, res) => {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const user = findUserById(userInfo.id);
+  const user = await User.findByPk(userInfo.id);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  const { password: _, ...userWithoutPassword } = user;
-  res.json(userWithoutPassword);
+  const userResponse = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    phone: user.phone,
+    address: user.address,
+    createdAt: user.created_at
+  };
+
+  res.json(userResponse);
 });
 
 module.exports = router;

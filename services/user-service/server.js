@@ -3,6 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const fs = require('fs');
+const { sequelize, testConnection } = require('./config/database');
+const User = require('./models/User');
 const userRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
 const { errorHandler } = require('./middleware/errorHandler');
@@ -48,7 +50,8 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
-    service: 'User Service (REST API)',
+    service: 'User Service (REST API with PostgreSQL)',
+    database: 'PostgreSQL',
     timestamp: new Date().toISOString()
   });
 });
@@ -76,10 +79,32 @@ app.use('*', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 User Service (REST API) running on port ${PORT}`);
-  console.log(`📋 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔑 Public key: http://localhost:${PORT}/api/public-key`);
-});
+// Initialize database and start server
+async function startServer() {
+  try {
+    // Test database connection
+    await testConnection();
+
+    // Sync database models
+    await sequelize.sync({ alter: true });
+    console.log('✅ Database models synchronized');
+
+    // Seed default users
+    await User.seedDefaultUsers();
+
+    // Start server
+    app.listen(PORT, () => {
+      console.log(`🚀 User Service (REST API) running on port ${PORT}`);
+      console.log(`📋 Health check: http://localhost:${PORT}/health`);
+      console.log(`🔑 Public key: http://localhost:${PORT}/api/public-key`);
+      console.log(`💾 Database: PostgreSQL`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 module.exports = app;

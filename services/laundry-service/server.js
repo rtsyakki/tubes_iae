@@ -1,8 +1,9 @@
 const express = require('express');
 const { ApolloServer } = require('apollo-server-express');
 const { PubSub } = require('graphql-subscriptions');
-const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
+const { connectDB } = require('./config/database');
+const Order = require('./models/Order');
 
 const app = express();
 const pubsub = new PubSub();
@@ -17,16 +18,6 @@ app.use(cors({
   ],
   credentials: true
 }));
-
-// In-memory data store
-let orders = [];
-
-// Constants
-const PRICES = {
-  WASH: 5000,
-  DRY: 4000,
-  IRON: 3000
-};
 
 // GraphQL type definitions
 const typeDefs = `
@@ -91,112 +82,96 @@ const typeDefs = `
   }
 `;
 
-// Helper to calculate price
-const calculatePrice = (serviceType, weight) => {
-  let pricePerKg = 0;
-  switch (serviceType) {
-    case 'WASH': pricePerKg = PRICES.WASH; break;
-    case 'DRY': pricePerKg = PRICES.DRY; break;
-    case 'IRON': pricePerKg = PRICES.IRON; break;
-    case 'WASH_DRY': pricePerKg = PRICES.WASH + PRICES.DRY; break;
-    case 'WASH_IRON': pricePerKg = PRICES.WASH + PRICES.IRON; break;
-    case 'FULL_SERVICE': pricePerKg = PRICES.WASH + PRICES.DRY + PRICES.IRON; break;
-    default: pricePerKg = 5000;
-  }
-  return pricePerKg * weight;
-};
-
 // GraphQL resolvers
 const resolvers = {
   Query: {
-    orders: (_, { customerId, status }, { req }) => {
+    orders: async (_, { customerId, status }, { req }) => {
       console.log('📋 Query: orders called');
       console.log('   User:', req?.user?.email, 'Role:', req?.user?.role);
-      console.log('   Total orders in memory:', orders.length);
-      console.log('   Filter params - customerId:', customerId, 'status:', status);
 
-      let filtered = orders;
-      if (customerId) filtered = filtered.filter(o => o.customerId === customerId);
-      if (status) filtered = filtered.filter(o => o.status === status);
+      let filter = {};
+      if (customerId) filter.customerId = customerId;
+      if (status) filter.status = status;
 
-      console.log('   Returning', filtered.length, 'orders');
-      return filtered;
+      const orderList = await Order.find(filter).sort({ createdAt: -1 });
+      console.log('   Returning', orderList.length, 'orders from MongoDB');
+      return orderList;
     },
-    order: (_, { id }) => orders.find(o => o.id === id),
-    myOrders: (_, __, { req }) => {
+
+    order: async (_, { id }) => {
+      return Order.findById(id);
+    },
+
+    myOrders: async (_, __, { req }) => {
       console.log('📋 Query: myOrders called');
       console.log('   User:', req?.user?.email, 'ID:', req?.user?.id);
-      console.log('   Total orders in memory:', orders.length);
 
       if (!req.user) throw new Error('Not authenticated');
-      const userOrders = orders.filter(o => o.customerId === req.user.id);
 
-      console.log('   Returning', userOrders.length, 'orders for user');
+      const userOrders = await Order.find({ customerId: req.user.id }).sort({ createdAt: -1 });
+      console.log('   Returning', userOrders.length, 'orders for user from MongoDB');
       return userOrders;
     }
   },
 
   Mutation: {
-    createOrder: (_, { input }, { req }) => {
+    createOrder: async (_, { input }, { req }) => {
       console.log('📝 Mutation: createOrder called');
       console.log('   User:', req?.user?.email, 'ID:', req?.user?.id);
 
       if (!req.user) throw new Error('Authentication required');
 
-      const price = calculatePrice(input.serviceType, input.weight);
+      const price = Order.calculatePrice(input.serviceType, input.weight);
 
-      const newOrder = {
-        id: uuidv4(),
+      const newOrder = new Order({
         customerId: req.user.id,
         customerName: req.user.name,
-        ...input,
+        serviceType: input.serviceType,
+        weight: input.weight,
+        notes: input.notes || '',
         price,
-        status: 'PENDING',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+        status: 'PENDING'
+      });
 
-      orders.push(newOrder);
+      await newOrder.save();
 
       console.log('   ✅ Order created:', newOrder.id);
-      console.log('   Total orders now:', orders.length);
+      console.log('   Saved to MongoDB');
 
-      // Notify admins (generic subscription) or specific listeners
+      // Notify subscribers
       pubsub.publish('ORDER_CREATED', { orderCreated: newOrder });
 
       return newOrder;
     },
 
-    updateOrderStatus: (_, { id, status }, { req }) => {
-      // Ideally check if user is admin
-      const orderIndex = orders.findIndex(o => o.id === id);
-      if (orderIndex === -1) throw new Error('Order not found');
+    updateOrderStatus: async (_, { id, status }, { req }) => {
+      console.log('📝 Mutation: updateOrderStatus called');
+      console.log('   Order ID:', id, 'New Status:', status);
 
-      const updatedOrder = {
-        ...orders[orderIndex],
-        status,
-        updatedAt: new Date().toISOString(),
-      };
+      const order = await Order.findById(id);
+      if (!order) throw new Error('Order not found');
 
-      orders[orderIndex] = updatedOrder;
+      order.status = status;
+      await order.save();
+
+      console.log('   ✅ Order status updated in MongoDB');
 
       // Notify customer
-      pubsub.publish(`ORDER_UPDATED_${updatedOrder.customerId}`, { orderStatusUpdated: updatedOrder });
+      pubsub.publish(`ORDER_UPDATED_${order.customerId}`, { orderStatusUpdated: order });
 
-      return updatedOrder;
+      return order;
     },
 
-    cancelOrder: (_, { id }, { req }) => {
-      const orderIndex = orders.findIndex(o => o.id === id);
-      if (orderIndex === -1) return false;
+    cancelOrder: async (_, { id }, { req }) => {
+      const order = await Order.findById(id);
+      if (!order) return false;
 
-      const order = orders[orderIndex];
       if (req.user.id !== order.customerId && req.user.role !== 'admin') {
         throw new Error('Not authorized');
       }
 
-      orders[orderIndex].status = 'CANCELLED';
-      orders[orderIndex].updatedAt = new Date().toISOString();
+      order.status = 'CANCELLED';
+      await order.save();
 
       return true;
     },
@@ -213,13 +188,16 @@ const resolvers = {
 };
 
 async function startServer() {
+  // Connect to MongoDB
+  await connectDB();
+
   const server = new ApolloServer({
     typeDefs,
     resolvers,
     context: ({ req }) => {
-      console.log('Incoming Headers:', JSON.stringify(req.headers)); // Debug Log
+      console.log('Incoming Headers:', JSON.stringify(req.headers));
       const user = req && req.headers.user ? JSON.parse(req.headers.user) : null;
-      console.log('Context User:', user); // Debug Log
+      console.log('Context User:', user);
       return { req: { ...req, user } };
     },
   });
@@ -232,20 +210,9 @@ async function startServer() {
   const httpServer = app.listen(PORT, () => {
     console.log(`🚀 Laundry Service (GraphQL) running on port ${PORT}`);
     console.log(`🔗 GraphQL endpoint: http://localhost:${PORT}${server.graphqlPath}`);
+    console.log(`💾 Database: MongoDB`);
     console.log(`📡 Subscriptions ready`);
   });
-
-  // Set up subscription handlers if needed (Apollo Server 3+ handles simpler, but for older syntax check compatibility. 
-  // Code snippet above uses express-ws or similar logic usually, but here relies on basic setup. 
-  // For true subscriptions with Apollo Server Express, we often need SubscriptionServer.
-  // Given the UTS code didn't explicitly implement SubscriptionServer in the `startServer` printed logic 
-  // (it had `server.installSubscriptionHandlers(httpServer)` commented out? No, let's check).
-
-  // The UTS code had `server.installSubscriptionHandlers(httpServer);` commented out. 
-  // I should probably uncomment it or implement it properly for real-time to work.
-  // For simplicity and compatibility with the likely installed version (Apollo Server 2 or 3), I will try to use the common method.
-  // Actually, let's verify dependnecies. UTS package.json had apollo-server-express. 
-  // Depending on version, subscription setup differs.
 }
 
 startServer().catch(error => {
