@@ -35,10 +35,27 @@ export default function Navbar() {
                             <Globe size={18} />
                         </div>
 
-                        <div className="flex items-center gap-2 border border-gray-300 rounded-full p-1 pl-3 hover:shadow-md transition cursor-pointer">
+                        <div className="flex items-center gap-2 border border-gray-300 rounded-full p-1 pl-3 hover:shadow-md transition cursor-pointer relative group">
                             <Menu size={18} />
                             <div className="bg-gray-500 rounded-full p-1 text-white">
                                 <User size={18} fill="white" />
+                            </div>
+
+                            {/* Dropdown Menu */}
+                            <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.12)] py-2 hidden group-hover:block border border-gray-100">
+                                <Link href="/login" className="block px-4 py-2 hover:bg-gray-50 text-sm font-semibold text-gray-900">
+                                    Log in
+                                </Link>
+                                <Link href="/register" className="block px-4 py-2 hover:bg-gray-50 text-sm text-gray-500">
+                                    Sign up
+                                </Link>
+                                <div className="border-t border-gray-200 my-2"></div>
+                                <Link href="/host" className="block px-4 py-2 hover:bg-gray-50 text-sm text-gray-500">
+                                    Laundry your home
+                                </Link>
+                                <div className="block px-4 py-2 hover:bg-gray-50 text-sm text-gray-500">
+                                    Help Center
+                                </div>
                             </div>
                         </div>
                     </div>

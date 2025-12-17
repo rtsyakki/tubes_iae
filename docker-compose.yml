@@ -76,6 +76,22 @@ services:
     networks:
       - laundry-network
 
+  # Store Service (GraphQL API with MongoDB)
+  store-service:
+    build: ./services/store-service
+    container_name: store-service
+    ports:
+      - "4001:4001"
+    environment:
+      - PORT=4001
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://laundry_admin:laundry_secret@mongodb:27017/laundry_stores?authSource=admin
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - laundry-network
+
   # API Gateway
   api-gateway:
     build: ./api-gateway

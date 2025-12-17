@@ -57,6 +57,25 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+const optionalVerifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  const token = authHeader.substring(7);
+  try {
+    if (publicKey) {
+      const decoded = jwt.verify(token, publicKey, { algorithms: ['RS256'] });
+      req.user = decoded;
+      req.headers['user'] = JSON.stringify(decoded);
+    }
+  } catch (error) {
+    console.warn('Optional token verification failed:', error.message);
+  }
+  next();
+};
+
 // Security middleware
 app.use(helmet());
 
@@ -114,27 +133,45 @@ const restApiProxy = createProxyMiddleware({
   }
 });
 
-// Proxy configuration for GraphQL API
+// Proxy configuration for GraphQL API (Laundry)
 const graphqlApiProxy = createProxyMiddleware({
   target: process.env.GRAPHQL_API_URL || 'http://laundry-service:4000',
   changeOrigin: true,
   ws: true,
   onError: (err, req, res) => {
-    console.error('Task Service Proxy Error:', err.message);
+    console.error('Laundry Service Proxy Error:', err.message);
     res.status(500).json({
       error: 'Laundry Service unavailable',
       message: err.message
     });
   },
   onProxyReq: (proxyReq, req, res) => {
-    // Forward user info if available
     if (req.headers['user']) {
-      console.log('Forwarding user header to Laundry Service:', req.headers['user']); // Debug Log
       proxyReq.setHeader('user', req.headers['user']);
-    } else {
-      console.log('⚠️ No user header found in request to Laundry Service'); // Debug Log
     }
     console.log(`[Laundry Service] ${req.method} ${req.url}`);
+  }
+});
+
+// Proxy configuration for Store Service
+const storeServiceProxy = createProxyMiddleware({
+  target: process.env.STORE_API_URL || 'http://store-service:4001',
+  changeOrigin: true,
+  pathRewrite: {
+    '^/graphql-store': '/graphql', // Rewrite path
+  },
+  onError: (err, req, res) => {
+    console.error('Store Service Proxy Error:', err.message);
+    res.status(500).json({
+      error: 'Store Service unavailable',
+      message: err.message
+    });
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    if (req.headers['user']) {
+      proxyReq.setHeader('user', req.headers['user']);
+    }
+    console.log(`[Store Service] ${req.method} ${req.url}`);
   }
 });
 
@@ -145,6 +182,7 @@ app.use('/api/public-key', restApiProxy);
 // Protected routes (authentication required)
 app.use('/api', verifyToken, restApiProxy);
 app.use('/graphql', verifyToken, graphqlApiProxy);
+app.use('/graphql-store', optionalVerifyToken, storeServiceProxy);
 
 // Catch-all route
 app.get('*', (req, res) => {
