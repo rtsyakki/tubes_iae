@@ -10,6 +10,15 @@ const orderSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    storeId: {
+        type: String,
+        required: true,
+        index: true
+    },
+    storeName: {
+        type: String,
+        required: true
+    },
     serviceType: {
         type: String,
         enum: ['WASH', 'DRY', 'IRON', 'WASH_DRY', 'WASH_IRON', 'FULL_SERVICE'],

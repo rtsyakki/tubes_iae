@@ -44,6 +44,8 @@ const typeDefs = `
     id: ID!
     customerId: ID!
     customerName: String
+    storeId: ID!
+    storeName: String
     serviceType: ServiceType!
     weight: Float!
     price: Float!
@@ -60,8 +62,11 @@ const typeDefs = `
   }
 
   input CreateOrderInput {
+    storeId: ID!
+    storeName: String!
     serviceType: ServiceType!
     weight: Float!
+    price: Float!
     notes: String
   }
 
@@ -121,11 +126,14 @@ const resolvers = {
 
       if (!req.user) throw new Error('Authentication required');
 
-      const price = Order.calculatePrice(input.serviceType, input.weight);
+      // Trust the price from input (marketplace logic) or re-calculate if strict
+      const price = input.price || Order.calculatePrice(input.serviceType, input.weight);
 
       const newOrder = new Order({
         customerId: req.user.id,
         customerName: req.user.name,
+        storeId: input.storeId,
+        storeName: input.storeName,
         serviceType: input.serviceType,
         weight: input.weight,
         notes: input.notes || '',

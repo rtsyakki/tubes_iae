@@ -21,6 +21,27 @@ const sanitizeUser = (user) => {
   };
 };
 
+// GET /api/users/profile - Get current user profile
+router.get('/profile', async (req, res) => {
+  try {
+    const userHeader = req.headers['user'];
+    if (!userHeader) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const userData = JSON.parse(userHeader);
+    const user = await User.findByPk(userData.id);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(sanitizeUser(user));
+  } catch (error) {
+    console.error('Error fetching profile:', error);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
 // GET /api/users - Get all users
 router.get('/', async (req, res) => {
   try {

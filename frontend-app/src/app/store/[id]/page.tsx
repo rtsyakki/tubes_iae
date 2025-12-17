@@ -3,6 +3,7 @@
 import Navbar from '@/components/Navbar';
 import { Star, MapPin, Share, Heart } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 // Use basic fetch for simplicity (or can add Apollo Client)
 async function fetchStore(id: string) {
@@ -22,6 +23,7 @@ async function fetchStore(id: string) {
           price
           label
         }
+        createdAt
       }
     }
   `;
@@ -51,6 +53,7 @@ async function fetchStore(id: string) {
 
 export default function StoreDetailPage({ params }: { params: { id: string } }) {
     const { id } = params;
+    const router = useRouter();
     const [store, setStore] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -70,6 +73,61 @@ export default function StoreDetailPage({ params }: { params: { id: string } }) 
             .catch(err => setError(err.message))
             .finally(() => setLoading(false));
     }, [id]);
+
+    const handleBooking = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            alert('Please login to book');
+            router.push('/login');
+            return;
+        }
+
+        if (!selectedService) return;
+
+        const mutation = `
+      mutation CreateOrder($input: CreateOrderInput!) {
+        createOrder(input: $input) {
+          id
+          status
+        }
+      }
+    `;
+
+        try {
+            const res = await fetch('http://localhost:3000/graphql', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    query: mutation,
+                    variables: {
+                        input: {
+                            storeId: store.id,
+                            storeName: store.name,
+                            serviceType: selectedService.type,
+                            weight: weight,
+                            price: selectedService.price * weight, // Calculate price here
+                            notes: `Check-in: ${date}`
+                        }
+                    }
+                })
+            });
+
+            const { data, errors } = await res.json();
+
+            if (errors) {
+                throw new Error(errors[0].message);
+            }
+
+            alert('Booking successful!');
+            router.push('/profile');
+
+        } catch (err: any) {
+            alert('Booking failed: ' + err.message);
+        }
+    };
 
     if (loading) return <div className="min-h-screen bg-white flex items-center justify-center">Loading...</div>;
     if (error) return <div className="min-h-screen bg-white flex items-center justify-center text-red-500">Error: {error}</div>;
@@ -209,7 +267,9 @@ export default function StoreDetailPage({ params }: { params: { id: string } }) 
                                 </select>
                             </div>
 
-                            <button className="w-full bg-[#FF385C] hover:bg-[#E31C5F] text-white font-bold py-3.5 rounded-lg transition mb-4">
+                            <button
+                                onClick={handleBooking}
+                                className="w-full bg-[#FF385C] hover:bg-[#E31C5F] text-white font-bold py-3.5 rounded-lg transition mb-4">
                                 Book Order
                             </button>
 
