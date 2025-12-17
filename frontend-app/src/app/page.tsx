@@ -77,7 +77,7 @@ export default function Home() {
                 address={store.address}
                 rating={store.rating}
                 reviewCount={store.reviewCount}
-                imageColor="bg-blue-300" // Fallback color
+                image={store.images && store.images.length > 0 ? store.images[0] : undefined}
                 // Use first service price as "priceStart" or default
                 priceStart={store.services && store.services.length > 0 ? store.services[0].price : 0}
               />

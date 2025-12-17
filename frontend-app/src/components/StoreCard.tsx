@@ -8,19 +8,26 @@ interface StoreCardProps {
     address: string;
     rating: number;
     reviewCount: number;
-    imageColor: string;
+    image?: string;
     priceStart?: number;
 }
 
-export default function StoreCard({ id, name, address, rating, reviewCount, imageColor, priceStart }: StoreCardProps) {
+export default function StoreCard({ id, name, address, rating, reviewCount, image, priceStart }: StoreCardProps) {
     return (
         <Link href={`/store/${id}`}>
             <div className="group cursor-pointer">
-                <div className={`relative aspect-[20/19] overflow-hidden rounded-xl bg-gray-200 mb-3 ${imageColor}`}>
-                    {/* Placeholder for Image */}
-                    <div className="absolute inset-0 flex items-center justify-center text-white/50 font-bold text-2xl">
-                        Store
-                    </div>
+                <div className="relative aspect-[20/19] overflow-hidden rounded-xl bg-gray-200 mb-3">
+                    {image ? (
+                        <img
+                            src={image}
+                            alt={name}
+                            className="object-cover w-full h-full group-hover:scale-105 transition duration-300"
+                        />
+                    ) : (
+                        <div className="absolute inset-0 flex items-center justify-center text-gray-400 font-bold text-2xl">
+                            Store
+                        </div>
+                    )}
 
                     {/* Superhost Badge (Mock) */}
                     <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md shadow-sm">
